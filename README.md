@@ -51,7 +51,7 @@ impl Node for RouterNode {
   - `IncomingMsg`
   - `OutgoingMsg`
 
-I think there needs to be some way to tie a future's `context` to Mail.
+I think there needs to be some way to tie a future's `context` to Mailbox.
 
 ```rust
 pub struct Mail {
@@ -100,7 +100,7 @@ impl Future for NextMessage<'_> {
 
 
 
-`std::alloc::task::Wake` vs `RawWakeVTable`
+### `std::alloc::task::Wake` vs `RawWakeVTable`
 
 Unsafe code - vtable construction
 
@@ -126,38 +126,49 @@ unsafe fn drop(_: *const ());
 
 
 
+## Design Guide
+
+
 
 ### Node refactor | Part 1
+
+This first iteration of the node trait serves to discern a definitive framework for linking nodes together via ethernet-like connections. There will be a method to set up the hardware aspect of a node, run once; a method to link with the hardware of other nodes, run once; and an async method for interactions when the simulation is running. The API definitions are subject to change.
 
 ```rust
 pub trait Node {
     /// Runs once at the beginning of the simulation.
-    /// Defines NIC count and properties.
-    fn setup(&mut self, nics: &mut nics);
+    /// Defines NICs and hardware properties.
+    fn setup(&mut self, nics: &mut Vec<Nic>);
     
-    /// Runs once at the beginning of the simulation, after setup is complete.
-    /// Form neighborships between nodes (akin to linking devices with ethernet cords).
-    fn on_startup(&mut self, nics: &nics);
+    /// Runs once at the beginning of the simulation, after all nodes have ran setup.
+    /// Form neighborships between other nodes.
+    fn on_startup(&mut self, nics: &Vec<Nic>);
     
     /// Called when a node receives message(s) in it's mailbox.
     /// Process messages and tasks, able to determine from what neighbor/interface 
     /// the message was received on.
-    async fn process(&mut self, mailbox: &mut mail, neighbors: &nics);
+    async fn process(&mut self, mail: &mut Mailbox, neighbors: &Vec<Nic>);
 }
 
+/// [EXAMPLE NODE IMPLEMENTATION]
 impl Node for SomeExampleNode {
-    fn setup(&mut self, nics: &mut nics) {
+    fn setup(&mut self, nics: &mut Vec<Nic>) {
+        // Setup NIC interfaces
         nics.add(
-            Mac::random(), 
-            IfaceCapabilities::GigabitEthernet,
+            Nic::new(
+            	Mac::random(), 
+            	IfaceCapabilities::GigabitEthernet,
+            )
         );
         nics.add(
-            Mac::from([1, 2, 3, 4, 5, 6]),
-            IfaceCapabilities::FastEthernet,
+            Nic::new(
+            	Mac::from([1, 2, 3, 4, 5, 6]),
+            	IfaceCapabilities::FastEthernet,
+            )
         );
     }
     
-    fn on_startup(&mut self, nics: &nics) {
+    fn on_startup(&mut self, nics: &Vec<Nic>) {
         // Link the first nic with the neighbor, 02:03:04:05:06:07 
     	nics[0].link(Mac::from([2, 3, 4, 5, 6, 7]));
         
@@ -165,7 +176,7 @@ impl Node for SomeExampleNode {
         mailbox.send(nics[0], Arp::request());
     }
     
-    async fn process(&mut self, mailbox: &mut mail, nics: &nics) {
+    async fn process(&mut self, mail: &mut Mailbox, nics: &Vec<Nic>) {
         // Receive arp response
         mailbox.receive(nics[0]).await;
     }
@@ -174,36 +185,56 @@ impl Node for SomeExampleNode {
 
 
 
-### Nics
+### Network Interface Card (NIC)
+
+Currently, `Nic` is an imaginary struct in the realm of the simulation. Let's define something more concrete.
 
 ```rust
-type NicId  = u64;
-type LinkId = u64;
+pub type NicId 		= u64;
+pub type NicGroup 	= u64;
+pub type LinkId 	= u64;
 
 pub struct Nic {
     pub(crate) id: NicId,
     
+    /// The node the Nic is accociated with.
+    pub(crate) group: NicGroup,
+
     pub(crate) mac: EthernetAddress,
     pub(crate) latency: Option<u64>,
+
     // A link id will be generated when two nodes connect. The value will be shared across both NICs.
     pub(crate) link_id: Option<LinkId>,
 }
 ```
 
-Storing link information:
+It is intended for a set of Nics on a device to be initialized within the `Node` trait. The entirety of the simulation's Nics should be stored in an array - `Vec<Nic>` - with the Nic ID (`NicId`) representing the index of the Nic in the Nics array. Nics are bundled in groups (`NicGroup`), each group corresponding with a singular node. This means we can easily generate mutable slices of Nics with the `[T]::chunk_by_mut` function, *so long as each node has at LEAST one NIC*. For example:
 
 ```rust
-Hashmap<LinkId, (NodeId, NodeId)>
+let mut nodes: &mut [&mut dyn Node] = /* ... retrieve Nodes ... */ ;
+let mut all_nics: Vec<Nic> = /* ... retrieve all nics ... */ ;
+let mut nics_group: Vec<&mut [Nic]> = all_nics.chunk_by_mut(|l, r| l.group == r.group).collect();
 ```
 
+With this definition, we can assert that the nics for `nodes[0]` will be bundled in `nics_group[0]`, the nics for `nodes[1]` in `nics_group[1]`, ... etc.
 
+Naturally, we need a way to ascertain links from Nic-to-Nic in the simulation.
+
+```rust
+/// Storing link information
+pub(crate) struct Topology {
+    next_id: LinkId,
+    links: HashMap<LinkId, (NicId, NicId)>,
+}
+```
 
 
 
 ### Node refactor | Part 2
 
-The previous node was a fine start, but there are a few extra things I want to take into consideration with this new design:
+The previous node was a fine start, but after implementing the `Nic` struct, there are a few extra things I want to take into consideration with this new design:
 
+- Intuitiveness (better naming/API)
 - Identification (for visualization).
 - Scheduled events / timers.
 
@@ -225,6 +256,33 @@ pub trait Node {
 
     /// Called when the node's `Mailbox` has incoming messages. 
     async fn process(&mut self, mail: &mut Mailbox, nics: &Nics) -> Result<(), NodeError>;
+}
+```
+
+There are now new structs we have to figure out to abstract `Vec<Nic>`, such as `Nics` and `NicAllocator`, but everything is slightly more coherent. However, there is still a problem in scheduled events / timers. Should `Mailbox` itself have a way to generate clock-like futures? Futures that poll every set amount of time?
+
+
+
+### Node refactor | Part 3
+
+```rust
+#[async_trait]
+pub trait Node {
+    /// Identification of the node.
+    /// Nodes default to "Node" as a name.
+    fn name(&self) -> &str {
+        "Node"
+    }
+
+    /// Add Network Interface Cards and hardware functionality to the node.
+    /// This function will run once before `startup` is called.
+    fn hardware(&self, nics: &mut NicAllocator);
+
+    /// Connect to other devices.
+    fn startup(&mut self, nics: &mut NicsMut<'_>);
+
+    /// Called when the node's `Mailbox` has incoming messages.
+    async fn process(&mut self, mail: &mut Mailbox, nics: &Nics<'_>) -> Result<(), NodeError>;
 }
 ```
 

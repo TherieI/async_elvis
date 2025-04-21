@@ -24,7 +24,7 @@ pub struct Nic {
 }
 
 impl Nic {
-    pub fn link(&mut self, id: LinkId) {
+    pub(crate) fn link(&mut self, id: LinkId) {
         self.link_id = Some(id);
     }
 }
