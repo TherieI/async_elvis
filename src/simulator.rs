@@ -18,6 +18,7 @@ fn slice_bounds(nics: &[Nic], node: usize) -> Option<(usize, usize)> {
 pub(crate) struct Topology {
     next_id: LinkId,
     hardware: Vec<Nic>,
+    // Links are full-duplex
     links: HashMap<LinkId, (NicId, NicId)>,
 }
 
@@ -31,30 +32,30 @@ impl Topology {
     }
 
     /// Return an immutable slice over the nics of a node.
-    pub fn nics(&self, node: usize) -> &[Nic] {
+    pub(crate) fn nics(&self, node: usize) -> &[Nic] {
         let (start, end) =
             slice_bounds(&self.hardware[node..], node).expect("node should be within bounds");
         &self.hardware[start..end]
     }
 
     /// Return a mutable slice over the nics of a node.
-    pub fn nics_mut(&mut self, node: usize) -> &mut [Nic] {
+    pub(crate) fn nics_mut(&mut self, node: usize) -> &mut [Nic] {
         let (start, end) =
             slice_bounds(&self.hardware[node..], node).expect("node should be within bounds");
         &mut self.hardware[start..end]
     }
 
-    pub fn node_slice(&mut self) -> Vec<&mut [Nic]> {
-        self.hardware
-            .chunk_by_mut(|l, r| l.group == r.group)
-            .collect()
-    }
+    // pub(crate) fn node_slice(&mut self) -> Vec<&mut [Nic]> {
+    //     self.hardware
+    //         .chunk_by_mut(|l, r| l.group == r.group)
+    //         .collect()
+    // }
 
-    pub fn all_nics(&self) -> &[Nic] {
+    pub(crate) fn all_nics(&self) -> &[Nic] {
         &self.hardware
     }
 
-    pub fn link_nics(&mut self, nic1: NicId, nic2: NicId) -> LinkId {
+    pub(crate) fn link_nics(&mut self, nic1: NicId, nic2: NicId) -> LinkId {
         let id = self.next_id;
         self.links.insert(id, (nic1, nic2));
         self.next_id = self
@@ -62,6 +63,15 @@ impl Topology {
             .checked_add(1)
             .expect("The number of links should be less than or equal to `u64::MAX`");
         id
+    }
+
+    /// Call after the links hashmap is complete. This will initialize the `Option<LinkId>` field in each
+    /// relevent `Nic` with the proper link.
+    pub(crate) fn fill_links(&mut self) {
+        for (link, nics) in self.links.iter_mut() {
+            self.hardware[nics.0 as usize].link(*link);
+            self.hardware[nics.1 as usize].link(*link);
+        }
     }
 }
 
@@ -77,6 +87,7 @@ fn run_sim(nodes: &mut [&mut dyn Node]) {
     let mut nics = nic_allocator.to_vec();
 
     {
+        // Assert the user has initialized at LEAST one nic per node.
         let hardware: Vec<&mut [Nic]> = nics.chunk_by_mut(|l, r| l.group == r.group).collect();
         assert_eq!(nodes.len(), hardware.len());
     }
@@ -89,6 +100,9 @@ fn run_sim(nodes: &mut [&mut dyn Node]) {
         let mut nics_mut = NicsMut::from_slice(i, &mut topology);
         node.startup(&mut nics_mut);
     }
+    topology.fill_links();
+
+
 }
 
 #[cfg(test)]
