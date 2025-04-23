@@ -3,17 +3,71 @@ use std::collections::HashMap;
 use crate::nics::{LinkId, Nic, NicId, Nics, NicsMut};
 use crate::{nics::NicAllocator, node::Node};
 
+/// Calculates the bounds for a slice of nics that correspond with a node.
+fn slice_bounds(nics: &[Nic], node: usize) -> Option<(usize, usize)> {
+    // Find slice range
+    let mut start = 0usize;
+    let mut end = 0usize;
+    let mut start_found = false;
+    // The nics for a node will start at least node elements into the array.
+    for (index, nic) in nics.iter().enumerate() {
+        if !start_found {
+            if nic.group == node as u64 {
+                start = index;
+                end = index + 1;
+                start_found = true;
+            }
+        } else {
+            // Start has been found
+            if nic.group == node as u64 {
+                end = index;
+            } else {
+                end = index;
+                break;
+            }
+        }
+    }
+    if !start_found {
+        None
+    } else {
+        Some((start, end))
+    }
+    
+}
+
 pub(crate) struct Topology {
     next_id: LinkId,
+    hardware: Vec<Nic>,
     links: HashMap<LinkId, (NicId, NicId)>,
 }
 
 impl Topology {
-    fn with_capacity(capacity: usize) -> Self {
+    fn new(hardware: Vec<Nic>, capacity: usize) -> Self {
         Self {
             next_id: 0,
+            hardware,
             links: HashMap::with_capacity(capacity),
         }
+    }
+
+    /// Return an immutable slice over the nics of a node.
+    pub fn nics(&self, node: usize) -> &[Nic] {
+        let (start, end) = slice_bounds(&self.hardware[node..], node).expect("node should be within bounds");
+        &self.hardware[start..end]
+    }
+
+    /// Return a mutable slice over the nics of a node.
+    pub fn nics_mut(&mut self, node: usize) -> &mut [Nic] {
+        let (start, end) = slice_bounds(&self.hardware[node..], node).expect("node should be within bounds");
+        &mut self.hardware[start..end]
+    }
+
+    pub fn node_slice(&mut self) -> Vec<&mut [Nic]> {
+        self.hardware.chunk_by_mut(|l, r| l.group == r.group).collect()
+    }
+
+    pub fn all_nics(&self) -> &[Nic] {
+        &self.hardware
     }
 
     pub fn link_nics(&mut self, nic1: NicId, nic2: NicId) -> LinkId {
@@ -29,8 +83,6 @@ impl Topology {
 
 fn run_sim(nodes: &mut [&mut dyn Node]) {
     // Note: This array must not change once the nics have been generated.
-    let mut topology = Topology::with_capacity(nodes.len());
-
     let mut nic_allocator = NicAllocator::with_capacity(nodes.len());
     // Generate the hardware for each node.
     for node in nodes.iter_mut() {
@@ -40,14 +92,94 @@ fn run_sim(nodes: &mut [&mut dyn Node]) {
     // nics should never change size after this point
     let mut nics = nic_allocator.to_vec();
 
-    let mut hardware: Vec<&mut [Nic]> = nics.chunk_by_mut(|l, r| l.group == r.group).collect();
-    assert_eq!(nodes.len(), hardware.len());
+    {
+        let hardware: Vec<&mut [Nic]> = nics.chunk_by_mut(|l, r| l.group == r.group).collect();
+        assert_eq!(nodes.len(), hardware.len());
+    }
+
+    let mut topology = Topology::new(nics, nodes.len());
 
     // Run startup for each node.
     for (i, node) in nodes.iter_mut().enumerate() {
         // The rust compiler hates it when hardware and topology are mutable references, so NicsMut have to own them.
-        let mut nics_mut = NicsMut::from_slice(i, hardware, topology);
+        let mut nics_mut = NicsMut::from_slice(i, &mut topology);
         node.startup(&mut nics_mut);
-        (hardware, topology) = nics_mut.reclaim();
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use smoltcp::wire::EthernetAddress;
+    use super::*;
+
+    fn nic_with_group(group: u64) -> Nic {
+        Nic {
+            id: 0,
+            group,
+            mac: EthernetAddress([0,0,0,0,0,0]),
+            latency: None,
+            link_id: None
+        }
+    }
+
+    #[test]
+    fn slice_bounds_check() {
+        let mut nics = Vec::new();
+        for i in 0..10 {
+            for _ in 0..2 {
+                nics.push(
+                    nic_with_group(i)
+                );
+            }
+        }
+
+        // CHECK AN EVEN LIST
+        let (start, end) = slice_bounds(&nics, 0).expect("Slice should be found");
+        assert_eq!(&nics[start..end], &nics[0..2]);
+
+        let (start, end) = slice_bounds(&nics, 4).expect("Slice should be found");
+        assert_eq!(&nics[start..end], &nics[8..10]);
+
+        let (start, end) = slice_bounds(&nics, 9).expect("Slice should be found");
+        assert_eq!(&nics[start..end], &nics[18..19]);
+
+        assert!(slice_bounds(&nics, 10).is_none());
+
+        nics.clear();
+
+        // CHECK AN UNEVEN LIST
+        nics.push(nic_with_group(0));
+        nics.push(nic_with_group(0));
+        nics.push(nic_with_group(1));
+        nics.push(nic_with_group(2));
+        nics.push(nic_with_group(2));
+        nics.push(nic_with_group(2));
+        nics.push(nic_with_group(3));
+        nics.push(nic_with_group(4));
+        nics.push(nic_with_group(4));
+        nics.push(nic_with_group(5));
+        nics.push(nic_with_group(5));
+        nics.push(nic_with_group(5));
+        nics.push(nic_with_group(6));
+        nics.push(nic_with_group(7));
+        nics.push(nic_with_group(8));
+        nics.push(nic_with_group(8));
+        nics.push(nic_with_group(8));
+        nics.push(nic_with_group(8));
+        nics.push(nic_with_group(8));
+        nics.push(nic_with_group(9));
+
+        let (start, end) = slice_bounds(&nics, 0).expect("Slice should be found");
+        assert_eq!(&nics[start..end], &nics[0..2]);
+
+        let (start, end) = slice_bounds(&nics, 1).expect("Slice should be found");
+        assert_eq!(&nics[start..end], &nics[2..3]);
+
+        let (start, end) = slice_bounds(&nics, 2).expect("Slice should be found");
+        assert_eq!(&nics[start..end], &nics[3..6]);
+
+        let (start, end) = slice_bounds(&nics, 8).expect("Slice should be found");
+        assert_eq!(&nics[start..end], &nics[14..19]);
     }
 }

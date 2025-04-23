@@ -11,6 +11,7 @@ pub type NicId = u64;
 pub type NicGroup = u64;
 pub type LinkId = u64;
 
+#[derive(PartialEq, Eq, Debug)]
 pub struct Nic {
     pub(crate) id: NicId,
     /// The node the Nic is accociated with
@@ -63,45 +64,36 @@ impl<'a> Index<usize> for Nics<'a> {
 
 /// NicsMut needs to be able to see all Nics in the simulation.
 pub struct NicsMut<'a> {
-    subslice: usize,
-    nics: Vec<&'a mut [Nic]>,
-    topology: Topology,
+    node: usize,
+    topology: &'a mut Topology,
 }
 
 impl<'a> NicsMut<'a> {
     pub(crate) fn from_slice(
-        subslice: usize,
-        nics: Vec<&'a mut [Nic]>,
-        topology: Topology,
+        node: usize,
+        topology: &'a mut Topology,
     ) -> Self {
         
         // let sectioned: Vec<&mut [Nic]> = nics.chunk_by_mut(|l, r| l.group == r.group).collect();
         Self {
-            subslice,
-            nics,
+            node,
             topology,
         }
     }
 
     /// Link with other nodes
-    pub fn link(&mut self, local: &mut Nic, next_hop: &EthernetAddress) -> Result<(), NicError> {
+    pub fn link(&mut self, local: &Nic, next_hop: &EthernetAddress) -> Result<(), NicError> {
         if let Some(neighbor) = self
-            .nics
-            .iter_mut()
-            .flat_map(|slice| slice.iter_mut())
+            .topology
+            .all_nics()
+            .iter()
             .find(|nic| nic.mac == *next_hop)
         {
-            let link_id = self.topology.link_nics(local.id, neighbor.id);
-            local.link(link_id);
-            neighbor.link(link_id);
+            self.topology.link_nics(local.id, neighbor.id);
             Ok(())
         } else {
             Err(NicError::NeighborNotFound)
         }
-    }
-
-    pub(crate) fn reclaim(self) -> (Vec<&'a mut [Nic]>, Topology) {
-        (self.nics, self.topology)
     }
 }
 
@@ -109,13 +101,13 @@ impl<'a> Index<usize> for NicsMut<'a> {
     type Output = Nic;
 
     fn index(&self, index: usize) -> &Self::Output {
-        &self.nics[self.subslice][index]
+        &self.topology.nics(self.node)[index]
     }
 }
 
 impl<'a> IndexMut<usize> for NicsMut<'a> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.nics[self.subslice][index]
+        &mut self.topology.nics_mut(self.node)[index]
     }
 }
 
