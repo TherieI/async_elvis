@@ -6,33 +6,12 @@ use crate::{nics::NicAllocator, node::Node};
 /// Calculates the bounds for a slice of nics that correspond with a node.
 fn slice_bounds(nics: &[Nic], node: usize) -> Option<(usize, usize)> {
     // Find slice range
-    let mut start = 0usize;
-    let mut end = 0usize;
-    let mut start_found = false;
-    // The nics for a node will start at least node elements into the array.
-    for (index, nic) in nics.iter().enumerate() {
-        if !start_found {
-            if nic.group == node as u64 {
-                start = index;
-                end = index + 1;
-                start_found = true;
-            }
-        } else {
-            // Start has been found
-            if nic.group == node as u64 {
-                end = index;
-            } else {
-                end = index;
-                break;
-            }
-        }
-    }
-    if !start_found {
-        None
-    } else {
-        Some((start, end))
-    }
-    
+    let start = nics.iter().position(|nic| nic.group == node as u64)?;
+    let end = start + nics[start..]
+        .iter()
+        .take_while(|nic| nic.group == node as u64)
+        .count();
+    Some((start, end))
 }
 
 pub(crate) struct Topology {
@@ -142,7 +121,7 @@ mod tests {
         assert_eq!(&nics[start..end], &nics[8..10]);
 
         let (start, end) = slice_bounds(&nics, 9).expect("Slice should be found");
-        assert_eq!(&nics[start..end], &nics[18..19]);
+        assert_eq!(&nics[start..end], &nics[18..20]);
 
         assert!(slice_bounds(&nics, 10).is_none());
 
@@ -181,5 +160,8 @@ mod tests {
 
         let (start, end) = slice_bounds(&nics, 8).expect("Slice should be found");
         assert_eq!(&nics[start..end], &nics[14..19]);
+
+        let (start, end) = slice_bounds(&nics, 9).expect("Slice should be found");
+        assert_eq!(&nics[start..end], &nics[19..20]);
     }
 }
