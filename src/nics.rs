@@ -69,16 +69,9 @@ pub struct NicsMut<'a> {
 }
 
 impl<'a> NicsMut<'a> {
-    pub(crate) fn from_slice(
-        node: usize,
-        topology: &'a mut Topology,
-    ) -> Self {
-        
+    pub(crate) fn from_slice(node: usize, topology: &'a mut Topology) -> Self {
         // let sectioned: Vec<&mut [Nic]> = nics.chunk_by_mut(|l, r| l.group == r.group).collect();
-        Self {
-            node,
-            topology,
-        }
+        Self { node, topology }
     }
 
     /// Link with other nodes

@@ -7,10 +7,11 @@ use crate::{nics::NicAllocator, node::Node};
 fn slice_bounds(nics: &[Nic], node: usize) -> Option<(usize, usize)> {
     // Find slice range
     let start = nics.iter().position(|nic| nic.group == node as u64)?;
-    let end = start + nics[start..]
-        .iter()
-        .take_while(|nic| nic.group == node as u64)
-        .count();
+    let end = start
+        + nics[start..]
+            .iter()
+            .take_while(|nic| nic.group == node as u64)
+            .count();
     Some((start, end))
 }
 
@@ -31,18 +32,22 @@ impl Topology {
 
     /// Return an immutable slice over the nics of a node.
     pub fn nics(&self, node: usize) -> &[Nic] {
-        let (start, end) = slice_bounds(&self.hardware[node..], node).expect("node should be within bounds");
+        let (start, end) =
+            slice_bounds(&self.hardware[node..], node).expect("node should be within bounds");
         &self.hardware[start..end]
     }
 
     /// Return a mutable slice over the nics of a node.
     pub fn nics_mut(&mut self, node: usize) -> &mut [Nic] {
-        let (start, end) = slice_bounds(&self.hardware[node..], node).expect("node should be within bounds");
+        let (start, end) =
+            slice_bounds(&self.hardware[node..], node).expect("node should be within bounds");
         &mut self.hardware[start..end]
     }
 
     pub fn node_slice(&mut self) -> Vec<&mut [Nic]> {
-        self.hardware.chunk_by_mut(|l, r| l.group == r.group).collect()
+        self.hardware
+            .chunk_by_mut(|l, r| l.group == r.group)
+            .collect()
     }
 
     pub fn all_nics(&self) -> &[Nic] {
@@ -86,19 +91,18 @@ fn run_sim(nodes: &mut [&mut dyn Node]) {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use smoltcp::wire::EthernetAddress;
     use super::*;
+    use smoltcp::wire::EthernetAddress;
 
     fn nic_with_group(group: u64) -> Nic {
         Nic {
             id: 0,
             group,
-            mac: EthernetAddress([0,0,0,0,0,0]),
+            mac: EthernetAddress([0, 0, 0, 0, 0, 0]),
             latency: None,
-            link_id: None
+            link_id: None,
         }
     }
 
@@ -107,9 +111,7 @@ mod tests {
         let mut nics = Vec::new();
         for i in 0..10 {
             for _ in 0..2 {
-                nics.push(
-                    nic_with_group(i)
-                );
+                nics.push(nic_with_group(i));
             }
         }
 
