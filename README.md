@@ -292,3 +292,8 @@ pub trait Node {
 
 - Generate hardware for nodes.
 - Link nodes together.
+
+
+### Troubles
+
+I'm beginning to think that linking nodes may be more nuanced than the system I came up with can handle. Say, for example, we have a router. The router may generate X number of Nics, but the user may not be aware of those Ethernet addresses. If that is the case, how can the router link up with the sim? (potentially through name?).
