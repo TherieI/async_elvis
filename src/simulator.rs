@@ -32,6 +32,9 @@ impl Topology {
     }
 
     /// Return an immutable slice over the nics of a node.
+    /// 
+    /// # Panics!
+    /// If node does not exist in the simulation.
     pub(crate) fn nics(&self, node: usize) -> &[Nic] {
         let (start, end) =
             slice_bounds(&self.hardware[node..], node).expect("node should be within bounds");
@@ -39,6 +42,9 @@ impl Topology {
     }
 
     /// Return a mutable slice over the nics of a node.
+    /// 
+    /// # Panics!
+    /// If node does not exist in the simulation.
     pub(crate) fn nics_mut(&mut self, node: usize) -> &mut [Nic] {
         let (start, end) =
             slice_bounds(&self.hardware[node..], node).expect("node should be within bounds");
@@ -65,8 +71,8 @@ impl Topology {
         id
     }
 
-    /// Call after the links hashmap is complete. This will initialize the `Option<LinkId>` field in each
-    /// relevent `Nic` with the proper link.
+    /// Call after `Node::startup` has been called for every node in the simulation.
+    /// This will complete the `Option<LinkId>` field for each `Nic`.
     pub(crate) fn fill_links(&mut self) {
         for (link, nics) in self.links.iter_mut() {
             self.hardware[nics.0 as usize].link(*link);
@@ -75,22 +81,21 @@ impl Topology {
     }
 }
 
-fn run_sim(nodes: &mut [&mut dyn Node]) {
+pub enum SimErr {
+    /// No Nics were initialized for at least one node in the simulation.
+    NodeNoHardware,
+}
+
+fn run_sim(nodes: &mut [&mut dyn Node]) -> Result<(), SimErr> {
     // Note: This array must not change once the nics have been generated.
     let mut nic_allocator = NicAllocator::with_capacity(nodes.len());
     // Generate the hardware for each node.
     for node in nodes.iter_mut() {
         node.hardware(&mut nic_allocator);
-        nic_allocator.next_node();
+        nic_allocator.next_node()?;
     }
     // nics should never change size after this point
-    let mut nics = nic_allocator.to_vec();
-
-    {
-        // Assert the user has initialized at LEAST one nic per node.
-        let hardware: Vec<&mut [Nic]> = nics.chunk_by_mut(|l, r| l.group == r.group).collect();
-        assert_eq!(nodes.len(), hardware.len());
-    }
+    let nics = nic_allocator.to_vec();
 
     let mut topology = Topology::new(nics, nodes.len());
 
@@ -102,7 +107,7 @@ fn run_sim(nodes: &mut [&mut dyn Node]) {
     }
     topology.fill_links();
 
-
+    Ok(())
 }
 
 #[cfg(test)]

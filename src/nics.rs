@@ -5,7 +5,7 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-use crate::simulator::Topology;
+use crate::simulator::{SimErr, Topology};
 
 pub type NicId = u64;
 pub type NicGroup = u64;
@@ -113,6 +113,10 @@ pub struct NicAllocator {
 }
 
 impl NicAllocator {
+    /// Add a nic to the node.
+    /// 
+    /// # Panics!
+    /// If the total number of nics generated in the simulation exceeds the capacity of a `u64`.
     pub fn add(&mut self, mac: EthernetAddress, latency: Option<u64>) {
         let next_id = self.nid;
         self.nid = self
@@ -136,15 +140,18 @@ impl NicAllocator {
         }
     }
 
-    /// # Panics!
     /// If a node has not initialized at least one NIC.
-    pub(crate) fn next_node(&mut self) {
+    pub(crate) fn next_node(&mut self) -> Result<(), SimErr> {
         // Assert that at least one NIC has been initialized by the user
-        assert_eq!(self.ngroup, self.nics[self.nics.len() - 1].group);
+        // assert_eq!(self.ngroup, self.nics[self.nics.len() - 1].group);
+        if self.ngroup != self.nics[self.nics.len() - 1].group {
+            return Result::Err(SimErr::NodeNoHardware)
+        }
         self.ngroup = self
             .ngroup
             .checked_add(1)
             .expect("The number of nodes should be less than or equal to `u64::MAX`");
+        Ok(())
     }
 
     pub(crate) fn to_vec(self) -> Vec<Nic> {
