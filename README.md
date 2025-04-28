@@ -300,3 +300,11 @@ I'm beginning to think that linking nodes may be more nuanced than the system I 
 
 Ideal linking API:
 `nics[i].link(&Mac);`
+
+Potential `Node` function:
+```rust
+/// Schedule the node to run after every specified duration (SIM TIME).
+async fn clock(&mut self, _: &mut Mailbox, _: &Nics<'_>) -> Option<u128> {
+    None
+}
+```
