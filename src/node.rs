@@ -42,6 +42,11 @@ pub trait Node {
     /// Connect to other devices.
     fn startup(&mut self, nics: &mut NicsMut<'_>);
 
+    /// Schedule the node to run after every specified duration.
+    async fn clock(&mut self, _: &mut Mailbox, _: &Nics<'_>) -> Option<u128> {
+        None
+    }
+
     /// Called when the node's `Mailbox` has incoming messages.
     async fn process(&mut self, mail: &mut Mailbox, nics: &Nics<'_>) -> Result<(), NodeError>;
 }
