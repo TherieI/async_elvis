@@ -32,7 +32,7 @@ pub trait Node {
     /// Identification of the node.
     /// Nodes default to "Node" as a name.
     fn name(&self) -> &str {
-        "Node"
+        std::any::type_name::<Self>()
     }
 
     /// Add Network Interface Cards and hardware functionality to the node.
