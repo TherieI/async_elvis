@@ -41,12 +41,13 @@ pub struct Nics<'a> {
 }
 
 impl<'a> Nics<'a> {
-    pub(crate) fn from_slice(nics: &'a mut [Nic]) -> Self {
+    pub(crate) fn from_slice(nics: &'a [Nic]) -> Self {
         Self { nics }
     }
 
-    pub fn mac(&self, address: &EthernetAddress) -> Option<&Nic> {
-        self.nics.iter().find(|nic| nic.mac == *address)
+    /// Returns a nic with the associated mac address, if found.
+    pub fn find_mac(&self, mac: &EthernetAddress) -> Option<&Nic> {
+        self.nics.iter().find(|nic| nic.mac == *mac)
     }
 
     pub fn len(&self) -> usize {
@@ -75,14 +76,16 @@ impl<'a> NicsMut<'a> {
     }
 
     /// Link with other nodes
-    pub fn link(&mut self, local: &Nic, next_hop: &EthernetAddress) -> Result<(), NicError> {
+    pub fn link(&mut self, local_id: NicId, next_hop: &EthernetAddress) -> Result<(), NicError> {
+        // Ensure the nic currently is not in use
+
         if let Some(neighbor) = self
             .topology
             .all_nics()
             .iter()
             .find(|nic| nic.mac == *next_hop)
         {
-            self.topology.link_nics(local.id, neighbor.id);
+            self.topology.link_nics(local_id, neighbor.id);
             Ok(())
         } else {
             Err(NicError::NeighborNotFound)
@@ -114,10 +117,10 @@ pub struct NicAllocator {
 
 impl NicAllocator {
     /// Add a nic to the node.
-    /// 
+    ///
     /// # Panics!
     /// If the total number of nics generated in the simulation exceeds the capacity of a `u64`.
-    pub fn add(&mut self, mac: EthernetAddress, latency: Option<u64>) {
+    pub fn nic(&mut self, mac: EthernetAddress, latency: Option<u64>) {
         let next_id = self.nid;
         self.nid = self
             .nid
@@ -144,8 +147,8 @@ impl NicAllocator {
     pub(crate) fn next_node(&mut self) -> Result<(), SimErr> {
         // Assert that at least one NIC has been initialized by the user
         // assert_eq!(self.ngroup, self.nics[self.nics.len() - 1].group);
-        if self.ngroup != self.nics[self.nics.len() - 1].group {
-            return Result::Err(SimErr::NodeNoHardware)
+        if self.nics.len() <= 0 || self.ngroup != self.nics[self.nics.len() - 1].group {
+            return Result::Err(SimErr::NodeNoHardware);
         }
         self.ngroup = self
             .ngroup

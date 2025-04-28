@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::nics::{LinkId, Nic, NicId, Nics, NicsMut};
+use crate::node::Mailbox;
 use crate::{nics::NicAllocator, node::Node};
 
 /// Calculates the bounds for a slice of nics that correspond with a node.
@@ -16,39 +17,37 @@ fn slice_bounds(nics: &[Nic], node: usize) -> Option<(usize, usize)> {
 }
 
 pub(crate) struct Topology {
-    next_id: LinkId,
     hardware: Vec<Nic>,
     // Links are full-duplex
-    links: HashMap<LinkId, (NicId, NicId)>,
+    pub(crate) links: Vec<(NicId, NicId)>,
 }
 
 impl Topology {
     fn new(hardware: Vec<Nic>, capacity: usize) -> Self {
         Self {
-            next_id: 0,
             hardware,
-            links: HashMap::with_capacity(capacity),
+            links: Vec::with_capacity(capacity),
         }
     }
 
     /// Return an immutable slice over the nics of a node.
-    /// 
+    ///
     /// # Panics!
     /// If node does not exist in the simulation.
     pub(crate) fn nics(&self, node: usize) -> &[Nic] {
         let (start, end) =
             slice_bounds(&self.hardware[node..], node).expect("node should be within bounds");
-        &self.hardware[start..end]
+        &self.hardware[start + node..end + node]
     }
 
     /// Return a mutable slice over the nics of a node.
-    /// 
+    ///
     /// # Panics!
     /// If node does not exist in the simulation.
     pub(crate) fn nics_mut(&mut self, node: usize) -> &mut [Nic] {
         let (start, end) =
             slice_bounds(&self.hardware[node..], node).expect("node should be within bounds");
-        &mut self.hardware[start..end]
+        &mut self.hardware[start + node..end + node]
     }
 
     // pub(crate) fn node_slice(&mut self) -> Vec<&mut [Nic]> {
@@ -61,33 +60,27 @@ impl Topology {
         &self.hardware
     }
 
-    pub(crate) fn link_nics(&mut self, nic1: NicId, nic2: NicId) -> LinkId {
-        let id = self.next_id;
-        self.links.insert(id, (nic1, nic2));
-        self.next_id = self
-            .next_id
-            .checked_add(1)
-            .expect("The number of links should be less than or equal to `u64::MAX`");
-        id
+    pub(crate) fn link_nics(&mut self, nic1: NicId, nic2: NicId) {
+        self.links.push((nic1, nic2));
     }
 
     /// Call after `Node::startup` has been called for every node in the simulation.
     /// This will complete the `Option<LinkId>` field for each `Nic`.
     pub(crate) fn fill_links(&mut self) {
-        for (link, nics) in self.links.iter_mut() {
-            self.hardware[nics.0 as usize].link(*link);
-            self.hardware[nics.1 as usize].link(*link);
+        for (link, nics) in self.links.iter().enumerate() {
+            self.hardware[nics.0 as usize].link(link as u64);
+            self.hardware[nics.1 as usize].link(link as u64);
         }
     }
 }
 
+#[derive(Debug)]
 pub enum SimErr {
     /// No Nics were initialized for at least one node in the simulation.
     NodeNoHardware,
 }
 
-fn run_sim(nodes: &mut [&mut dyn Node]) -> Result<(), SimErr> {
-    // Note: This array must not change once the nics have been generated.
+pub(crate) fn sim_setup(nodes: &mut [&mut dyn Node]) -> Result<Topology, SimErr> {
     let mut nic_allocator = NicAllocator::with_capacity(nodes.len());
     // Generate the hardware for each node.
     for node in nodes.iter_mut() {
@@ -106,6 +99,11 @@ fn run_sim(nodes: &mut [&mut dyn Node]) -> Result<(), SimErr> {
         node.startup(&mut nics_mut);
     }
     topology.fill_links();
+    Ok(topology)
+}
+
+pub fn run_sim(nodes: &mut [&mut dyn Node]) -> Result<(), SimErr> {
+    let topology = sim_setup(nodes)?;
 
     Ok(())
 }
@@ -127,6 +125,23 @@ mod tests {
 
     #[test]
     fn slice_bounds_check() {
+        // CHECK LIST WITH ONE NIC PER NODE
+        let mut nics = Vec::new();
+        for i in 0..3 {
+            for _ in 0..1 {
+                nics.push(nic_with_group(i));
+            }
+        }
+        let (start, end) = slice_bounds(&nics, 0).expect("Slice should be found");
+        assert_eq!(&nics[start..end], &nics[0..1]);
+
+        let (start, end) = slice_bounds(&nics, 1).expect("Slice should be found");
+        assert_eq!(&nics[start..end], &nics[1..2]);
+
+        let (start, end) = slice_bounds(&nics, 2).expect("Slice should be found");
+        assert_eq!(&nics[start..end], &nics[2..3]);
+
+        // CHECK LIST WITH MULTIPLE NICS PER NODE
         let mut nics = Vec::new();
         for i in 0..10 {
             for _ in 0..2 {
