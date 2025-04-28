@@ -104,6 +104,17 @@ pub(crate) fn sim_setup(nodes: &mut [&mut dyn Node]) -> Result<Topology, SimErr>
 
 pub fn run_sim(nodes: &mut [&mut dyn Node]) -> Result<(), SimErr> {
     let topology = sim_setup(nodes)?;
+    let mut mailboxes: Vec<Mailbox> = Vec::with_capacity(nodes.len());
+
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            for (i, node) in nodes.iter_mut().enumerate() {
+                let _ = node.process(&mut mailboxes[i], &Nics::from_slice(topology.nics(i)));
+            }
+        });
 
     Ok(())
 }
