@@ -1,9 +1,10 @@
 use smoltcp::wire::EthernetAddress;
 
+use crate::message::Mailbox;
 use crate::simulator::{run_sim, sim_setup};
 use crate::{
     nics::{NicAllocator, Nics, NicsMut},
-    node::{Mailbox, Node, NodeError},
+    node::{Node, NodeError},
     nodes,
 };
 

@@ -1,28 +1,14 @@
+use std::pin::Pin;
+
 use async_trait::async_trait;
 
-use crate::nics::*;
+use crate::{message::Mailbox, nics::*};
 
 #[macro_export]
 macro_rules! nodes {
     ( $( $x:expr ),* ) => {
         &mut [$( &mut $x, )*]
     }
-}
-
-pub struct IncomingMsg {
-    from: NicId,
-    data: Vec<u8>,
-}
-
-impl IncomingMsg {}
-
-pub struct OutgoingMsg {
-    to: NicId,
-    data: Vec<u8>,
-}
-
-pub struct Mailbox {
-    incoming: Vec<IncomingMsg>,
 }
 
 pub enum NodeError {}

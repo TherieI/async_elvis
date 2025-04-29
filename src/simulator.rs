@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use crate::nics::{LinkId, Nic, NicId, Nics, NicsMut};
-use crate::node::Mailbox;
 use crate::{nics::NicAllocator, node::Node};
+use std::sync::mpsc;
+use std::sync::Arc;
 
 /// Calculates the bounds for a slice of nics that correspond with a node.
 fn slice_bounds(nics: &[Nic], node: usize) -> Option<(usize, usize)> {
@@ -15,6 +16,10 @@ fn slice_bounds(nics: &[Nic], node: usize) -> Option<(usize, usize)> {
             .count();
     Some((start, end))
 }
+
+// pub(crate) struct Simulator {
+//     scheduled: mpsc::Receiver<>,
+// }
 
 pub(crate) struct Topology {
     hardware: Vec<Nic>,
